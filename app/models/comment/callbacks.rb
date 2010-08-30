@@ -1,13 +1,14 @@
 class Comment
-
+  attr_writer :doing_restore
+  
   def before_create
     self.target ||= project
 
-    set_status_and_assigned if self.target.is_a?(Task)
+    set_status_and_assigned if self.target.is_a?(Task) and !@doing_restore
   end
 
   def after_create
-    return unless self.target
+    return if self.target.nil? or @doing_restore
     target.reload
     
     @activity = project && project.log_activity(self, 'create')

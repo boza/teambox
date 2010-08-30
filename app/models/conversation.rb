@@ -9,14 +9,20 @@ class Conversation < RoleRecord
 
   attr_accessible :name, :simple
   attr_accessor :body
+  
+  attr_accessor :doing_restore
 
-  validates_presence_of :name, :message => :no_title, :unless => :simple?
-  validates_presence_of :body, :message => :no_body_generic, :on => :create
+  validates_presence_of :name, :message => :no_title, :unless => :simple_or_restore
+  validates_presence_of :body, :message => :no_body_generic, :on => :create, :unless => :doing_restore
 
   named_scope :only_simple, :conditions => { :simple => true }
   named_scope :not_simple, :conditions => { :simple => false }
   named_scope :recent, lambda { |num| { :limit => num, :order => 'updated_at desc' } }
 
+  def simple_or_restore
+    simple? || doing_restore
+  end
+  
   def after_create
     project.log_activity(self,'create')
     add_watcher(self.user) 
