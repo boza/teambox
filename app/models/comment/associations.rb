@@ -10,6 +10,6 @@ class Comment
   belongs_to :assigned, :class_name => 'Person'
   belongs_to :previous_assigned, :class_name => 'Person'  
 
-  accepts_nested_attributes_for :target
+  #accepts_nested_attributes_for :target
   
 end
