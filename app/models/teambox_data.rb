@@ -1,196 +1,90 @@
-class TeamboxData
+class TeamboxData < ActiveRecord::Base
+  belongs_to :user
   attr_accessor :data
+  attr_accessor :ready
   
-  def initialize(params={})
-    @data = params[:data]
-  end
+  serialize :project_ids
+  serialize :map_data
   
-  def serialize(organizations, projects, users)
-    {
-      :account => {
-        :projects => projects.map{|p| p.to_api_hash(:include => [
-          :tasks,
-          :task_lists,
-          :comments,
-          :conversations,
-          :invitations,
-          :pages,
-          :people,
-          :slots,
-          :rel_object,
-          :uploads])},
-        :users => users.map{|u| u.to_api_hash(:include => [:email])},
-        :organizations => organizations.map{|o| o.to_api_hash(:include => [:members, :projects])}
-      }
-    }
-  end
+  concerned_with :serialization
   
-  def users
-    @data['account']['users']
-  end
+  attr_accessible :projects_to_export, :type_name, :processed_data
   
-  def projects
-    @data['account']['projects']
-  end
+  TYPE_LOOKUP = {:import => 0, :export => 1}
+  TYPE_CODES = TYPE_LOOKUP.invert
   
-  def organizations
-    @data['account']['organizations']
-  end
+  before_validation_on_create :process_data
   
-  def ids_to_users
-    if @ids_to_users.nil?
-      @ids_to_users ||= {}
-      users.each{|u| @ids_to_users[u['id']] = u}
+  has_attached_file :processed_data,
+    :url  => "/exports/:id/:basename.:extension",
+    :path => Teambox.config.amazon_s3 ?
+      "exports/:id/:filename" :
+      ":rails_root/exports/:id/:filename"
+  
+  def process_data
+    if @ready
+      if type_name == :import
+        self.processed_at = Time.now
+        unserialize(@object_maps)
+      else
+        self.processed_at = Time.now
+        @data = serialize(organizations_to_export, projects_to_export, users_to_export)
+        upload =  ActionController::UploadedStringIO.new
+        upload.write(@data.to_json)
+        upload.seek(0)
+        upload.original_path = "#{user.login}-export.json"
+        self.processed_data = upload
+      end
     else
-      @ids_to_users
-    end
-  end
-  
-  def unserialize(object_maps, opts={})
-    ActiveRecord::Base.transaction do
-      dump = @data['account']
-      
-      @unserialize_log = []
-      
-      @object_map = {
-        'User' => {},
-        'Organization' => {}
-      }.merge(object_maps)
-      
-      @imported_users = @object_map['User']
-      @organization_map = @object_map['Organization']
-      @out_dump = []
-      
-      @users = users.map do |udata|
-        user_name = @imported_users[udata['username']] || udata['username']
-        user = User.find_by_login(user_name)
-        if user.nil? and opts[:create_users]
-          user = User.new(udata)
-          user.login = udata['username']
-          user.password = user.password_confirmation = udata['password'] || rand().to_s
-          user.save!
-        end
-        @imported_users[udata['id']] = user
-        import_log(user)
-      end.compact
-      
-      @organizations = organizations.map do |organization_data|
-        organization = Organization.find_by_permalink(organization_data['permalink'])
-        organization = unpack_object(Organization.new, organization_data, []) if organization.nil?
-        organization.save!
-        
-        @organization_map[organization_data['id']] = organization
-        
-        Array(organization_data['members']).each do |member_data|
-          organization.add_member(resolve_user(member_data['user_id']), member_data['role'])
-        end
-      end
-      
-      @projects = projects.map do |project_data|
-        @project = Project.find_by_permalink(project_data['permalink'])
-        @project = unpack_object(Project.new, project_data, ['user_id']) if @project.nil?
-        @project.user = resolve_user(project_data['owner_user_id'])
-        @project.organization = @organization_map[project_data['organization_id']] || @project.user.organizations.first
-        @project.save!
-        
-        import_log(@project)
-      
-        Array(project_data['people']).each do |person_data|
-          @project.add_user(resolve_user(person_data['user_id']), person_data['role'])
-        end
-      
-        Array(project_data['conversations']).each do |conversation_data|
-          conversation = unpack_object(@project.conversations.build, conversation_data)
-          conversation.doing_restore = true
-          conversation.save!
-          import_log(conversation)
-        
-          unpack_comments(conversation, conversation_data['comments'])
-        end
-      
-        Array(project_data['task_lists']).each do |task_list_data|
-          task_list = unpack_object(@project.task_lists.build, task_list_data)
-          task_list.save!
-          import_log(task_list)
-        
-          unpack_comments(task_list, task_list_data['comments'])
-        
-          Array(project_data['tasks']).each do |task_data|
-            task = unpack_object(task_list.tasks.build, task_data)
-            task.save!
-            import_log(task)
-            unpack_comments(task, task_data['comments'])
-          end
-        end
-      
-        Array(project_data['pages']).each do |page_data|
-          page = unpack_object(@project.pages.build, page_data)
-          page.save!
-          import_log(page)
-        
-          obj_type_map = {'Note' => :notes, 'Divider' => :dividers}
-        
-          Array(page_data['slots']).each do |slot_data|
-            next if obj_type_map[slot_data['rel_object_type']].nil? # not handled yet
-            rel_object = unpack_object(page.send(obj_type_map[slot_data['rel_object_type']]).build, slot_data['rel_object'])
-            rel_object.updated_by = page.user
-            rel_object.save!
-            rel_object.page_slot.position = slot_data['position']
-            rel_object.page_slot.save!
-            import_log(rel_object)
-          end
+      if processed_data_file_name.nil? and type_name == :import
+        # store the import in a temporary file, since we don't need it for long
+        self.processed_data_file_name = "#{user.name}-import.json"
+        TempFile.new(processed_data_file_name) do |f|
+          f.write serialize(organizations, projects, users).to_json
         end
       end
     end
   end
   
-  def unpack_object(object, data, non_mass=[])
-    object.tap do |obj|
-      obj.attributes = data
-      
-      non_mass.each do |key|
-        obj.send("#{key}=", data[key]) if data[key]
+  def type_name
+    TYPE_CODES[type_id]
+  end
+  
+  def type_name=(value)
+    self.type_id = TYPE_LOOKUP[value.to_sym]
+  end
+  
+  def exported?
+    type_name == :export && !processed_at.nil?
+  end
+  
+  def imported?
+    type_name == :import && !processed_at.nil?
+  end
+  
+  def projects_to_export=(value)
+    self.project_ids = Array(value).map(&:to_i).compact
+  end
+  
+  def projects_to_export
+    Project.find(:all, :conditions => {:id => project_ids})
+  end
+  
+  def organizations_to_export
+    Organization.find(:all, :conditions => {:projects => {:id => project_ids}}, :joins => [:projects])
+  end
+  
+  def users_to_export
+    organizations_to_export.map{|o| o.users + o.users_in_projects }.flatten.compact
+  end
+  
+  def data
+    if @data.nil? and type_name == :import
+      File.open(processed_data_file_name) do |f|
+        @data = ActiveRecord::JSON.decode f.read
       end
-      
-      obj.project = @project if obj.respond_to? :project
-      obj.user_id = resolve_user(data['user_id']).id if data['user_id']
-      obj.watchers_ids = data['watchers'].map{|u| @imported_users[u].try(:id)}.compact if data['watchers']
-      obj.created_at = data['created_at'] if data['created_at']
-      obj.updated_at = data['updated_at'] if data['updated_at']
+    else
+      @data
     end
-  end
-  
-  def unpack_comments(obj, comments)
-    return if comments.nil?
-    comments.each do |comment_data|
-      comment = unpack_object(@project.comments.build, comment_data)
-      comment.doing_restore = true
-      comment.target = obj
-      comment.save!
-      import_log(comment)
-    end
-  end
-  
-  def resolve_user(id)
-    user = @imported_users[id]
-    if !user
-      need_user = ids_to_users[id] || {'username' => id}
-      throw Exception.new("User '#{need_user['username']}' not present. Please map it to an existing user or create it.")
-    end
-    user
-  end
-  
-  def import_log(object)
-    puts "Imported #{object}"
-  end
-  
-  def self.import_from_file(name, user_map, opts={})
-    data = File.open(name, 'r') { |file| ActiveSupport::JSON.decode file.read }
-    TeamboxData.new(:data => data).unserialize(user_map, opts)
-  end
-  
-  def self.export_to_file(projects, users, organizations, name)
-    data = TeamboxData.new().serialize(organizations, projects, users)
-    File.open(name, 'w') { |file| file.write data.to_json }
   end
 end
