@@ -1,5 +1,5 @@
 class TeamboxData
-  attr_accessor :data
+  attr_writer :data
   
   def serialize(organizations, projects, users)
     {
@@ -22,15 +22,15 @@ class TeamboxData
   end
   
   def users
-    @data['account']['users']
+    data['account']['users']
   end
   
   def projects
-    @data['account']['projects']
+    data['account']['projects']
   end
   
   def organizations
-    @data['account']['organizations']
+    data['account']['organizations']
   end
   
   def ids_to_users
@@ -44,7 +44,7 @@ class TeamboxData
   
   def unserialize(object_maps, opts={})
     ActiveRecord::Base.transaction do
-      dump = @data['account']
+      dump = data['account']
       
       @unserialize_log = []
       
@@ -182,11 +182,11 @@ class TeamboxData
   
   def self.import_from_file(name, user_map, opts={})
     data = File.open(name, 'r') { |file| ActiveSupport::JSON.decode file.read }
-    TeamboxData.new(:data => data).unserialize(user_map, opts)
+    TeamboxData.new.tap{|d| d.data = data}.unserialize(user_map, opts)
   end
   
   def self.export_to_file(projects, users, organizations, name)
-    data = TeamboxData.new().serialize(organizations, projects, users)
+    data = TeamboxData.new.serialize(organizations, projects, users)
     File.open(name, 'w') { |file| file.write data.to_json }
   end
 end
