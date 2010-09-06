@@ -11,6 +11,7 @@ class TeamboxData < ActiveRecord::Migration
       t.string   :processed_data_content_type
       t.integer  :processed_data_file_size
       
+      t.boolean :is_processing, :default => false
       t.datetime :processed_at
       
       t.timestamps

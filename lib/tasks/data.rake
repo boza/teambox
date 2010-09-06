@@ -1,4 +1,4 @@
-def teambox_data_import(create_users)
+def teambox_data_import(make_data)
   if ENV['TEAMBOX_DATA']
     #begin
       object_maps = {
@@ -8,7 +8,8 @@ def teambox_data_import(create_users)
       (ENV['TEAMBOX_USERS']||'').strip.split(',').each do |entry|
         entry.split('=').tap {|values| object_maps['User'][values[0]] = values[1] }
       end
-      TeamboxData.import_from_file(ENV['TEAMBOX_DATA'], object_maps, {:create_users => create_users})
+      TeamboxData.import_from_file(ENV['TEAMBOX_DATA'], object_maps, {:create_users => make_data, 
+                                                                      :create_organizations => make_data})
     #rescue Exception => e
     #  puts e
     #end
@@ -32,8 +33,8 @@ namespace :data do
     teambox_data_import(false)
   end
   
-  desc "Import data, including users"
-  task :import_with_users => :environment do
+  desc "Import data, including users and organizations"
+  task :import_new => :environment do
     teambox_data_import(true)
   end
 end

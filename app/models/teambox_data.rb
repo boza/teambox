@@ -3,13 +3,14 @@ class TeamboxData < ActiveRecord::Base
   attr_accessor :data
   attr_accessor :ready
   attr_accessor :import_data
+  attr_writer :map_data
   
   serialize :project_ids
   serialize :map_data
   
   concerned_with :serialization
   
-  attr_accessible :projects_to_export, :type_name, :import_data
+  attr_accessible :projects_to_export, :type_name, :import_data, :map_data
   
   TYPE_LOOKUP = {:import => 0, :export => 1}
   TYPE_CODES = TYPE_LOOKUP.invert
@@ -27,16 +28,34 @@ class TeamboxData < ActiveRecord::Base
   validate :check_map
   
   def check_map
-    if type_name == :import and map_data
+    if type_name == :import
+      return @errors.add("user_map", "Should be specified") if map_data.nil?
+      
       # All users need to be known to the owner
-      users = organizations_to_export.map{|o| o.users + o.users_in_projects }.flatten.compact.map(&:login)
+      users = user.organizations.map{|o| o.users + o.users_in_projects }.flatten.compact.map(&:login)
       
       map_data.each do |login,dest_login|
         if !users.include?(dest_login)
-          @errors.add "user_map_#{login}", "Not known to user"
+          @errors.add "user_map_#{login}", "#{dest_login} Not known to user #{users.inspect}"
         end
       end
     end
+  end
+  
+  def map_data
+    if @map_data.nil?
+      known_map = {}
+      known_users = user.organizations.map{|o| o.users + o.users_in_projects }.flatten.compact.each do |user|
+        known_map[user.login] = user
+      end
+      
+      @map_data = {}
+      users.each do |user|
+        map_data[user['username']] = known_map[user['username']].login
+      end
+    end
+    
+    @map_data
   end
   
   def process_data
@@ -71,7 +90,7 @@ class TeamboxData < ActiveRecord::Base
   def do_import
     self.processed_at = Time.now
     begin
-      unserialize(@object_maps||{})
+      unserialize(@map_data||{})
       is_processing = false
       save!
     rescue Exception => e

@@ -25,6 +25,14 @@ class TeamboxData
     data['account']['users']
   end
   
+  def users_lookup
+    {}.tap do |u|
+      data['account']['users'].each do |user|
+        u[user['username']] = user
+      end
+    end
+  end
+  
   def projects
     data['account']['projects']
   end
@@ -66,14 +74,24 @@ class TeamboxData
           user.password = user.password_confirmation = udata['password'] || rand().to_s
           user.save!
         end
+        
+        raise(Exception, "User #{user} could not be resolved") if user.nil?
+        
         @imported_users[udata['id']] = user
-        import_log(user)
+        import_log(user, "#{udata['username']} -> #{user_name}")
       end.compact
       
       @organizations = organizations.map do |organization_data|
-        organization = Organization.find_by_permalink(organization_data['permalink'])
-        organization = unpack_object(Organization.new, organization_data, []) if organization.nil?
-        organization.save!
+        organization_name = @organization_map[organization_data['permalink']] || organization_data['permalink']
+        organization = Organization.find_by_permalink(organization_name)
+        
+        if organization.nil? and opts[:create_organizations]
+          organization = unpack_object(Organization.new, organization_data, []) if organization.nil?
+          organization.permalink = organization_name if organization.nil?
+          organization.save!
+        end
+        
+        raise(Exception, "Organization #{organization} could not be resolved") if organization.nil?
         
         @organization_map[organization_data['id']] = organization
         
@@ -84,7 +102,10 @@ class TeamboxData
       
       @projects = projects.map do |project_data|
         @project = Project.find_by_permalink(project_data['permalink'])
-        @project = unpack_object(Project.new, project_data, ['user_id']) if @project.nil?
+        if @project
+          project_data['permalink'] += "-#{rand}"
+        end
+        @project = unpack_object(Project.new, project_data, ['user_id'])
         @project.user = resolve_user(project_data['owner_user_id'])
         @project.organization = @organization_map[project_data['organization_id']] || @project.user.organizations.first
         @project.save!
@@ -176,8 +197,8 @@ class TeamboxData
     user
   end
   
-  def import_log(object)
-    puts "Imported #{object}"
+  def import_log(object, remark="")
+    puts "Imported #{object} (#{remark})"
   end
   
   def self.import_from_file(name, user_map, opts={})
