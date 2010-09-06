@@ -14,7 +14,13 @@ class TeamboxDatasController < ApplicationController
   
   def show
     respond_to do |f|
-      f.html { render view_for_data(:show) }
+      if @data.type_name == :import and @data.data == nil
+        @data.destroy
+        flash[:error] = t('teambox_datas.show_import.import_error')
+        f.html { redirect_to teambox_datas_path }
+      else
+        f.html { render view_for_data(:show) }
+      end
     end
   end
   
@@ -44,9 +50,10 @@ class TeamboxDatasController < ApplicationController
     @data.ready = true
     
     respond_to do |f|
-      if @data.save
-        f.html { redirect_to teambox_data_path(@data) }
+      if @data.update_attributes(params[:teambox_data])
+        f.html { redirect_to teambox_datas_path }
       else
+        flash.now[:error] = "There were errors with the information you supplied!"
         f.html { render view_for_data(:show) }
       end
     end

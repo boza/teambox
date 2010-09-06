@@ -976,12 +976,14 @@ en:
       processed_at: "Processed at %{processed_at}"
       incomplete: "More information required."
       remove: Remove
+      confirm_delete: "Are you sure you want to delete this data?"
     show_import:
       title: "Import data"
       please_supply_user_map: We detected the following users in your import. Please confirm which users correspond to which user on Teambox.
       user: User
       teambox_user: Teambox user
       submit: Import
+      import_error: "There was an error loading your import. Please try again."
     column:
       description: "Here you can move your data in and out of Teambox."
   uploads:

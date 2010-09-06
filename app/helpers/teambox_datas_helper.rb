@@ -12,4 +12,10 @@ module TeamboxDatasHelper
       ["#{user.to_s} (@#{user.login})", user.login]
     end
   end
+  
+  def options_for_target_organization
+    [['Please Select...', '#invalid']] + current_user.admin_organizations.map do |organization|
+      ["#{organization}", organization.permalink]
+    end
+  end
 end

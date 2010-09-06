@@ -1,19 +1,8 @@
 class TeamboxData < ActiveRecord::Base
   belongs_to :user
-  attr_accessor :data
-  attr_accessor :ready
-  attr_accessor :import_data
-  attr_writer :map_data
+  concerned_with :serialization, :attributes
   
-  serialize :project_ids
-  serialize :map_data
-  
-  concerned_with :serialization
-  
-  attr_accessible :projects_to_export, :type_name, :import_data, :map_data
-  
-  TYPE_LOOKUP = {:import => 0, :export => 1}
-  TYPE_CODES = TYPE_LOOKUP.invert
+  attr_accessible :projects_to_export, :type_name, :import_data, :user_map, :target_organization
   
   before_validation_on_create :process_data
   after_create :check_ready
@@ -28,34 +17,21 @@ class TeamboxData < ActiveRecord::Base
   validate :check_map
   
   def check_map
-    if type_name == :import
-      return @errors.add("user_map", "Should be specified") if map_data.nil?
-      
+    if type_name == :import and !new_record?
+      # user needs to be an admin of the target organization
+      if !user.admin_organizations.map(&:permalink).include?(target_organization)
+        return @errors.add("target_organization", "Should be an admin")
+      end
+    
       # All users need to be known to the owner
       users = user.organizations.map{|o| o.users + o.users_in_projects }.flatten.compact.map(&:login)
       
-      map_data.each do |login,dest_login|
+      user_map.each do |login,dest_login|
         if !users.include?(dest_login)
           @errors.add "user_map_#{login}", "#{dest_login} Not known to user #{users.inspect}"
         end
       end
     end
-  end
-  
-  def map_data
-    if @map_data.nil?
-      known_map = {}
-      known_users = user.organizations.map{|o| o.users + o.users_in_projects }.flatten.compact.each do |user|
-        known_map[user.login] = user
-      end
-      
-      @map_data = {}
-      users.each do |user|
-        map_data[user['username']] = known_map[user['username']].login
-      end
-    end
-    
-    @map_data
   end
   
   def process_data
@@ -76,13 +52,15 @@ class TeamboxData < ActiveRecord::Base
   end
   
   def check_ready
-    return unless processed_at.nil?
+    return if is_processing or !processed_at.nil?
     
     if type_name == :import and @ready
-      is_processing = true
+      self.is_processing = true
+      self.save
       Teambox.config.delay_data_processing ? send_later(:do_import) : do_import
     elsif type_name == :export
-      is_processing = true
+      self.is_processing = true
+      self.save
       Teambox.config.delay_data_processing ? send_later(:do_export) : do_export
     end
   end
@@ -90,7 +68,12 @@ class TeamboxData < ActiveRecord::Base
   def do_import
     self.processed_at = Time.now
     begin
-      unserialize(@map_data||{})
+      org_map = {}
+      organizations.each do |org|
+        org_map[org['permalink']] = target_organization
+      end
+      
+      unserialize({'User' => user_map, 'Organization' => org_map})
       is_processing = false
       save!
     rescue Exception => e
@@ -112,14 +95,6 @@ class TeamboxData < ActiveRecord::Base
     self.processed_data = upload
     is_processing = false
     save!
-  end
-  
-  def type_name
-    TYPE_CODES[type_id]
-  end
-  
-  def type_name=(value)
-    self.type_id = TYPE_LOOKUP[value.to_sym]
   end
   
   def exported?
@@ -148,19 +123,5 @@ class TeamboxData < ActiveRecord::Base
   
   def users_to_export
     organizations_to_export.map{|o| o.users + o.users_in_projects }.flatten.compact
-  end
-  
-  def data
-    if @data.nil? and type_name == :import
-      begin
-        File.open("/tmp/#{processed_data_file_name}") do |f|
-          @data = ActiveSupport::JSON.decode f.read
-        end
-      rescue
-        nil
-      end
-    else
-      @data
-    end
   end
 end
