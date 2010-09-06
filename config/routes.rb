@@ -48,6 +48,8 @@ ActionController::Routing::Routes.draw do |map|
     account.account_notifications   '/account/notifications',   :sub_action => 'notifications'
     account.account_delete          '/account/delete',          :sub_action => 'delete'
   end
+  
+  map.resources :teambox_datas, :as => :datas 
 
   map.destroy_user '/account/destroy', :controller => 'users', :action => 'destroy'
 

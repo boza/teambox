@@ -40,6 +40,7 @@ en:
     page: "Page %{id} not found in this project."
     task_list: "Task list %{id} not found in this project."
     task: "Task %{id} not found in this project."
+    data: "There was a problem locating your data."
   deleted:
     conversation: "Deleted <b>%{name}</b> conversation"
     task: "Deleted <b>%{name}</b> task"
@@ -951,6 +952,38 @@ en:
       line4: "In this project you won't be able to invite other users, but you can do all the rest."
       error: "Could not create example project."
       error_list: "Could not create example project. The following projects are invalid: %{list}."
+  teambox_datas:
+    new_import:
+      title: "Import data"
+      select_file: Please choose a file containing your teambox data.
+      submit: Import data
+    new_export:
+      title: "Export data"
+      description: "Please select which projects you wish to export"
+      submit: Export data
+    index:
+      title: "Your data"
+      imports: "Imports"
+      exports: "Exports"
+      no_imports: "There are no recent imports."
+      no_exports: "There are no recent exports."
+    show_export:
+      title: "Your data"
+      projects: "Projects exported:"
+      download: "Download export"
+    data:
+      processing: "Currently processing..."
+      processed_at: "Processed at %{processed_at}"
+      incomplete: "More information required."
+      remove: Remove
+    show_import:
+      title: "Import data"
+      please_supply_user_map: We detected the following users in your import. Please confirm which users correspond to which user on Teambox.
+      user: User
+      teambox_user: Teambox user
+      submit: Import
+    column:
+      description: "Here you can move your data in and out of Teambox."
   uploads:
     tooltip: Upload a file
     comment_upload_link: Attachment
